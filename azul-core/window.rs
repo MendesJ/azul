@@ -1,28 +1,34 @@
-use std::{
-    fmt,
-    collections::{BTreeMap, HashSet},
-    sync::atomic::{AtomicUsize, Ordering},
-    marker::PhantomData,
-    path::PathBuf,
-};
+#[cfg(debug_assertions)]
+#[cfg(not(test))]
+use azul_css::HotReloadHandler;
+use azul_css::{Css, CssPath};
+#[cfg(not(test))]
+use azul_css::{LayoutPoint, LayoutRect};
 #[cfg(target_os = "windows")]
 use std::ffi::c_void;
 #[cfg(not(test))]
 #[cfg(debug_assertions)]
 use std::time::Duration;
-use azul_css::{Css, CssPath};
-#[cfg(debug_assertions)]
-#[cfg(not(test))]
-use azul_css::{LayoutPoint, LayoutRect, HotReloadHandler};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fmt,
+    marker::PhantomData,
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
 use crate::{
-    FastHashMap,
     app_resources::Epoch,
+    callbacks::{
+        Callback, DefaultCallback, DocumentId, HitTestItem, PipelineId, Redraw, ScrollPosition,
+        UpdateScreen,
+    },
+    display_list::{CachedDisplayList, GlTextureCache, SolvedLayoutCache},
     dom::{DomId, EventFilter},
     id_tree::NodeId,
-    callbacks::{PipelineId, DocumentId, Callback, DefaultCallback, ScrollPosition, HitTestItem, UpdateScreen, Redraw},
-    ui_solver::{OverflowingScrollNode, ExternalScrollId, ScrolledNodes},
+    ui_solver::{ExternalScrollId, OverflowingScrollNode, ScrolledNodes},
     ui_state::UiState,
-    display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
+    FastHashMap,
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -34,11 +40,15 @@ static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
 /// Each default callback is identified by its ID (not by it's function pointer),
 /// since multiple IDs could point to the same function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct WindowId { id: usize }
+pub struct WindowId {
+    id: usize,
+}
 
 impl WindowId {
     pub fn new() -> Self {
-        WindowId { id: LAST_WINDOW_ID.fetch_add(1, Ordering::SeqCst) }
+        WindowId {
+            id: LAST_WINDOW_ID.fetch_add(1, Ordering::SeqCst),
+        }
     }
 }
 
@@ -48,11 +58,15 @@ static LAST_ICON_KEY: AtomicUsize = AtomicUsize::new(0);
 /// this way azul doesn't need to diff the actual bytes, just the icon key.
 /// Use `IconKey::new()` to generate a new, unique key
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct IconKey { id: usize }
+pub struct IconKey {
+    id: usize,
+}
 
 impl IconKey {
     pub fn new() -> Self {
-        Self { id: LAST_ICON_KEY.fetch_add(1, Ordering::SeqCst) }
+        Self {
+            id: LAST_ICON_KEY.fetch_add(1, Ordering::SeqCst),
+        }
     }
 }
 
@@ -175,7 +189,6 @@ impl Default for MouseState {
 }
 
 impl MouseState {
-
     /// Returns whether any mouse button (left, right or center) is currently held down
     pub fn mouse_down(&self) -> bool {
         self.right_down || self.left_down || self.middle_down
@@ -248,12 +261,10 @@ pub struct DebugState {
     pub gpu_cache_dbg: bool,
 }
 
-
 #[derive(Debug, Default)]
 pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
-
     pub fn new() -> ScrollStates {
         ScrollStates::default()
     }
@@ -265,25 +276,39 @@ impl ScrollStates {
 
     /// Set the scroll amount - does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
-    pub fn set_scroll_position(&mut self, node: &OverflowingScrollNode, scroll_position: LayoutPoint) {
-        self.0.entry(node.parent_external_scroll_id)
-        .or_insert_with(|| ScrollState::default())
-        .set(scroll_position.x, scroll_position.y, &node.child_rect);
+    pub fn set_scroll_position(
+        &mut self,
+        node: &OverflowingScrollNode,
+        scroll_position: LayoutPoint,
+    ) {
+        self.0
+            .entry(node.parent_external_scroll_id)
+            .or_insert_with(|| ScrollState::default())
+            .set(scroll_position.x, scroll_position.y, &node.child_rect);
     }
 
     /// NOTE: This has to be a getter, because we need to update
     #[must_use]
-    pub fn get_scroll_position_and_mark_as_used(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
+    pub fn get_scroll_position_and_mark_as_used(
+        &mut self,
+        scroll_id: &ExternalScrollId,
+    ) -> Option<LayoutPoint> {
         let entry = self.0.get_mut(&scroll_id)?;
         Some(entry.get_and_mark_as_used())
     }
 
     /// Updating (add to) the existing scroll amount does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
-    pub fn scroll_node(&mut self, node: &OverflowingScrollNode, scroll_by_x: f32, scroll_by_y: f32) {
-        self.0.entry(node.parent_external_scroll_id)
-        .or_insert_with(|| ScrollState::default())
-        .add(scroll_by_x, scroll_by_y, &node.child_rect);
+    pub fn scroll_node(
+        &mut self,
+        node: &OverflowingScrollNode,
+        scroll_by_x: f32,
+        scroll_by_y: f32,
+    ) {
+        self.0
+            .entry(node.parent_external_scroll_id)
+            .or_insert_with(|| ScrollState::default())
+            .add(scroll_by_x, scroll_by_y, &node.child_rect);
     }
 
     /// Removes all scroll states that weren't used in the last frame
@@ -301,7 +326,6 @@ pub struct ScrollState {
 }
 
 impl ScrollState {
-
     /// Return the current position of the scroll state
     pub fn get(&self) -> LayoutPoint {
         self.scroll_position
@@ -309,8 +333,12 @@ impl ScrollState {
 
     /// Add a scroll X / Y onto the existing scroll state
     pub fn add(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
-        self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width);
-        self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height);
+        self.scroll_position.x = (self.scroll_position.x + x)
+            .max(0.0)
+            .min(child_rect.size.width);
+        self.scroll_position.y = (self.scroll_position.y + y)
+            .max(0.0)
+            .min(child_rect.size.height);
     }
 
     /// Set the scroll state to a new position
@@ -339,7 +367,7 @@ impl Default for ScrollState {
 /// but leaves the extra fields such as `.hover_nodes` untouched
 pub fn update_full_window_state(
     full_window_state: &mut FullWindowState,
-    window_state: &WindowState
+    window_state: &WindowState,
 ) {
     full_window_state.title = window_state.title.clone();
     full_window_state.size = window_state.size;
@@ -383,29 +411,39 @@ pub struct WindowInternal {
 }
 
 impl WindowInternal {
-
     /// Returns a copy of the current scroll states + scroll positions
-    pub fn get_current_scroll_states<T>(&self, ui_states: &BTreeMap<DomId, UiState<T>>)
-    -> BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>
-    {
-        self.scrolled_nodes.iter().filter_map(|(dom_id, scrolled_nodes)| {
+    pub fn get_current_scroll_states<T>(
+        &self,
+        ui_states: &BTreeMap<DomId, UiState<T>>,
+    ) -> BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>> {
+        self.scrolled_nodes
+            .iter()
+            .filter_map(|(dom_id, scrolled_nodes)| {
+                let layout_result = self.layout_result.solved_layouts.get(dom_id)?;
+                let ui_state = &ui_states.get(dom_id)?;
 
-            let layout_result = self.layout_result.solved_layouts.get(dom_id)?;
-            let ui_state = &ui_states.get(dom_id)?;
+                let scroll_positions = scrolled_nodes
+                    .overflowing_nodes
+                    .iter()
+                    .filter_map(|(node_id, overflowing_node)| {
+                        let scroll_location = self
+                            .scroll_states
+                            .get_scroll_position(&overflowing_node.parent_external_scroll_id)?;
+                        let parent_node = ui_state.get_dom().arena.node_hierarchy[*node_id]
+                            .parent
+                            .unwrap_or(NodeId::ZERO);
+                        let scroll_position = ScrollPosition {
+                            scroll_frame_rect: overflowing_node.child_rect,
+                            parent_rect: layout_result.rects[parent_node].to_layouted_rectangle(),
+                            scroll_location,
+                        };
+                        Some((*node_id, scroll_position))
+                    })
+                    .collect();
 
-            let scroll_positions = scrolled_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
-                let scroll_location = self.scroll_states.get_scroll_position(&overflowing_node.parent_external_scroll_id)?;
-                let parent_node = ui_state.get_dom().arena.node_hierarchy[*node_id].parent.unwrap_or(NodeId::ZERO);
-                let scroll_position = ScrollPosition {
-                    scroll_frame_rect: overflowing_node.child_rect,
-                    parent_rect: layout_result.rects[parent_node].to_layouted_rectangle(),
-                    scroll_location,
-                };
-                Some((*node_id, scroll_position))
-            }).collect();
-
-            Some((dom_id.clone(), scroll_positions))
-        }).collect()
+                Some((dom_id.clone(), scroll_positions))
+            })
+            .collect()
     }
 }
 
@@ -466,7 +504,6 @@ pub struct FullWindowState {
     pub css: Css,
 
     // --
-
     /// Previous window state, used for determining mouseout, etc. events
     pub previous_window_state: Option<Box<FullWindowState>>,
     /// Whether there is a file currently hovering over the window
@@ -497,7 +534,6 @@ impl Default for FullWindowState {
             css: Css::default(),
 
             // --
-
             previous_window_state: None,
             hovered_file: None,
             dropped_file: None,
@@ -508,7 +544,6 @@ impl Default for FullWindowState {
 }
 
 impl FullWindowState {
-
     pub fn get_mouse_state(&self) -> &MouseState {
         &self.mouse_state
     }
@@ -549,7 +584,7 @@ impl From<WindowState> for FullWindowState {
             ime_position: window_state.ime_position,
             platform_specific_options: window_state.platform_specific_options,
             css: window_state.css,
-            .. Default::default()
+            ..Default::default()
         }
     }
 }
@@ -585,21 +620,18 @@ pub struct CallCallbacksResult {
 }
 
 impl CallCallbacksResult {
-
     pub fn should_relayout(&self) -> bool {
-        self.needs_relayout_hover_active ||
-        self.callbacks_update_screen == Redraw
+        self.needs_relayout_hover_active || self.callbacks_update_screen == Redraw
     }
 
     pub fn should_restyle(&self) -> bool {
-        self.should_relayout() ||
-        self.needs_restyle_focus_changed ||
-        self.needs_restyle_hover_active
+        self.should_relayout()
+            || self.needs_restyle_focus_changed
+            || self.needs_restyle_hover_active
     }
 
     pub fn should_rerender(&self) -> bool {
-        self.should_restyle() ||
-        self.should_scroll_render
+        self.should_restyle() || self.should_scroll_render
     }
 }
 
@@ -754,19 +786,15 @@ pub struct MacWindowOptions {
 }
 
 impl WindowState {
-
     pub fn new(css: Css) -> Self {
         Self {
             css,
-            .. Default::default()
+            ..Default::default()
         }
     }
 
     pub fn with_css(self, css: Css) -> Self {
-        Self {
-            css,
-            .. self
-        }
+        Self { css, ..self }
     }
 
     /// Returns the current keyboard keyboard state. We don't want the library
@@ -848,7 +876,6 @@ pub struct WindowSize {
 }
 
 impl WindowSize {
-
     /// Get the actual logical size
     pub fn get_logical_size(&self) -> LogicalSize {
         LogicalSize::new(self.dimensions.width, self.dimensions.height)
@@ -919,12 +946,18 @@ pub struct WindowCreateOptions<T> {
 impl<T> fmt::Debug for WindowCreateOptions<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         #[cfg(debug_assertions)]
-        #[cfg(not(test))] {
+        #[cfg(not(test))]
+        {
             write!(f, "WindowCreateOptions {{ state: {:?}, renderer_type: {:?}, hot_reload_handler: {:?} }}",
-                   self.state, self.renderer_type, self.hot_reload_handler.is_some())
+                       self.state, self.renderer_type, self.hot_reload_handler.is_some())
         }
-        #[cfg(any(not(debug_assertions), test))] {
-            write!(f, "WindowCreateOptions {{ state: {:?}, renderer_type: {:?} }}", self.state, self.renderer_type)
+        #[cfg(any(not(debug_assertions), test))]
+        {
+            write!(
+                f,
+                "WindowCreateOptions {{ state: {:?}, renderer_type: {:?} }}",
+                self.state, self.renderer_type
+            )
         }
     }
 }
@@ -943,11 +976,10 @@ impl<T> Default for WindowCreateOptions<T> {
 }
 
 impl<T> WindowCreateOptions<T> {
-
     pub fn new(css: Css) -> Self {
         Self {
             state: WindowState::new(css),
-            .. Default::default()
+            ..Default::default()
         }
     }
 
@@ -961,7 +993,7 @@ impl<T> WindowCreateOptions<T> {
     pub fn new_hot_reload(hot_reload_handler: Box<dyn HotReloadHandler>) -> Self {
         Self {
             hot_reload_handler: Some(hot_reload_handler),
-            .. Default::default()
+            ..Default::default()
         }
     }
 }
@@ -973,7 +1005,6 @@ pub struct HotReloader(pub Box<dyn HotReloadHandler>);
 #[cfg(not(test))]
 #[cfg(debug_assertions)]
 impl HotReloader {
-
     pub fn new(hot_reload_handler: Box<dyn HotReloadHandler>) -> Self {
         Self(hot_reload_handler)
     }
@@ -993,10 +1024,8 @@ impl HotReloader {
             Ok(mut new_css) => {
                 new_css.sort_by_specificity();
                 Ok(new_css)
-            },
-            Err(why) => {
-                Err(format!("{}", why))
-            },
+            }
+            Err(why) => Err(format!("{}", why)),
         }
     }
 }
@@ -1070,17 +1099,42 @@ impl<T> fmt::Debug for AzulUpdateEvent<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::AzulUpdateEvent::*;
         match self {
-            CreateWindow { window_create_options } => write!(f, "CreateWindow {{ window_create_options: {:?} }}", window_create_options),
+            CreateWindow {
+                window_create_options,
+            } => write!(
+                f,
+                "CreateWindow {{ window_create_options: {:?} }}",
+                window_create_options
+            ),
             CloseWindow { window_id } => write!(f, "CloseWindow {{ window_id: {:?} }}", window_id),
             DoHitTest { window_id } => write!(f, "DoHitTest {{ window_id: {:?} }}", window_id),
             RebuildUi { window_id } => write!(f, "RebuildUi {{ window_id: {:?} }}", window_id),
-            RestyleUi { window_id, skip_layout } => write!(f, "RestyleUi {{ window_id: {:?}, skip_layout: {:?} }}", window_id, skip_layout),
+            RestyleUi {
+                window_id,
+                skip_layout,
+            } => write!(
+                f,
+                "RestyleUi {{ window_id: {:?}, skip_layout: {:?} }}",
+                window_id, skip_layout
+            ),
             RelayoutUi { window_id } => write!(f, "RelayoutUi {{ window_id: {:?} }}", window_id),
-            RebuildDisplayList { window_id } => write!(f, "RebuildDisplayList {{ window_id: {:?} }}", window_id),
-            SendDisplayListToWebRender { window_id } => write!(f, "SendDisplayListToWebRender {{ window_id: {:?} }}", window_id),
-            UpdateScrollStates { window_id } => write!(f, "UpdateScrollStates {{ window_id: {:?} }}", window_id),
-            UpdateAnimations { window_id } => write!(f, "UpdateAnimations {{ window_id: {:?} }}", window_id),
-            UpdateImages { window_id } => write!(f, "UpdateImages {{ window_id: {:?} }}", window_id),
+            RebuildDisplayList { window_id } => {
+                write!(f, "RebuildDisplayList {{ window_id: {:?} }}", window_id)
+            }
+            SendDisplayListToWebRender { window_id } => write!(
+                f,
+                "SendDisplayListToWebRender {{ window_id: {:?} }}",
+                window_id
+            ),
+            UpdateScrollStates { window_id } => {
+                write!(f, "UpdateScrollStates {{ window_id: {:?} }}", window_id)
+            }
+            UpdateAnimations { window_id } => {
+                write!(f, "UpdateAnimations {{ window_id: {:?} }}", window_id)
+            }
+            UpdateImages { window_id } => {
+                write!(f, "UpdateImages {{ window_id: {:?} }}", window_id)
+            }
         }
     }
 }
@@ -1097,8 +1151,12 @@ impl ::std::fmt::Display for UpdateFocusWarning {
         use self::UpdateFocusWarning::*;
         match self {
             FocusInvalidDomId(dom_id) => write!(f, "Focusing on DOM with invalid ID: {:?}", dom_id),
-            FocusInvalidNodeId(node_id) => write!(f, "Focusing on node with invalid ID: {}", node_id),
-            CouldNotFindFocusNode(css_path) => write!(f, "Could not find focus node for path: {}", css_path),
+            FocusInvalidNodeId(node_id) => {
+                write!(f, "Focusing on node with invalid ID: {}", node_id)
+            }
+            CouldNotFindFocusNode(css_path) => {
+                write!(f, "Could not find focus node for path: {}", css_path)
+            }
         }
     }
 }
@@ -1110,7 +1168,6 @@ pub struct DetermineCallbackResult<T> {
 }
 
 impl<T> DetermineCallbackResult<T> {
-
     pub fn has_default_callbacks(&self) -> bool {
         !self.default_callbacks.is_empty()
     }
@@ -1120,8 +1177,7 @@ impl<T> DetermineCallbackResult<T> {
     }
 
     pub fn has_any_callbacks(&self) -> bool {
-        self.has_default_callbacks() ||
-        self.has_normal_callbacks()
+        self.has_default_callbacks() || self.has_normal_callbacks()
     }
 }
 
@@ -1147,12 +1203,13 @@ impl<T> Clone for DetermineCallbackResult<T> {
 
 impl<T> fmt::Debug for DetermineCallbackResult<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-        "DetermineCallbackResult {{ \
-            hit_test_item: {:?},\
-            default_callbacks: {:#?},\
-            normal_callbacks: {:#?},\
-        }}",
+        write!(
+            f,
+            "DetermineCallbackResult {{ \
+             hit_test_item: {:?},\
+             default_callbacks: {:#?},\
+             normal_callbacks: {:#?},\
+             }}",
             self.hit_test_item,
             self.default_callbacks,
             self.normal_callbacks.keys().collect::<Vec<_>>(),
@@ -1187,15 +1244,14 @@ impl<T> Default for CallbacksOfHitTest<T> {
 
 impl<T> fmt::Debug for CallbacksOfHitTest<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-        "CallbacksOfHitTest {{ \
+        write!(
+            f,
+            "CallbacksOfHitTest {{ \
             nodes_with_callbacks: {:#?},
             needs_relayout_anyways: {:?},
             needs_redraw_anyways: {:?},
         }}",
-            self.nodes_with_callbacks,
-            self.needs_relayout_anyways,
-            self.needs_redraw_anyways,
+            self.nodes_with_callbacks, self.needs_relayout_anyways, self.needs_redraw_anyways,
         )
     }
 }
@@ -1203,8 +1259,11 @@ impl<T> fmt::Debug for CallbacksOfHitTest<T> {
 impl<T> CallbacksOfHitTest<T> {
     /// Returns whether there is any
     pub fn should_call_callbacks(&self) -> bool {
-        !self.nodes_with_callbacks.is_empty() &&
-        self.nodes_with_callbacks.values().any(|n| n.has_any_callbacks())
+        !self.nodes_with_callbacks.is_empty()
+            && self
+                .nodes_with_callbacks
+                .values()
+                .any(|n| n.has_any_callbacks())
     }
 }
 
@@ -1234,9 +1293,13 @@ pub struct PhysicalSize {
 
 impl LogicalPosition {
     #[inline(always)]
-    pub const fn new(x: f32, y: f32) -> Self { Self { x, y } }
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
     #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition {
         PhysicalPosition {
@@ -1248,9 +1311,13 @@ impl LogicalPosition {
 
 impl PhysicalPosition {
     #[inline(always)]
-    pub const fn new(x: f32, y: f32) -> Self { Self { x, y } }
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
@@ -1262,9 +1329,13 @@ impl PhysicalPosition {
 
 impl LogicalSize {
     #[inline(always)]
-    pub const fn new(width: f32, height: f32) -> Self { Self { width, height } }
+    pub const fn new(width: f32, height: f32) -> Self {
+        Self { width, height }
+    }
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
     #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize {
         PhysicalSize {
@@ -1276,9 +1347,13 @@ impl LogicalSize {
 
 impl PhysicalSize {
     #[inline(always)]
-    pub const fn new(width: f32, height: f32) -> Self { Self { width, height } }
+    pub const fn new(width: f32, height: f32) -> Self {
+        Self { width, height }
+    }
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalSize {
         LogicalSize {
@@ -1298,7 +1373,6 @@ pub enum AcceleratorKey {
 }
 
 impl AcceleratorKey {
-
     /// Checks if the current keyboard state contains the given char or modifier,
     /// i.e. if the keyboard state currently has the shift key pressed and the
     /// accelerator key is `Shift`, evaluates to true, otherwise to false.
@@ -1510,7 +1584,7 @@ impl PartialOrd for WindowIcon {
     }
 }
 
-impl Eq for WindowIcon { }
+impl Eq for WindowIcon {}
 
 impl Ord for WindowIcon {
     fn cmp(&self, rhs: &Self) -> ::std::cmp::Ordering {
@@ -1519,7 +1593,10 @@ impl Ord for WindowIcon {
 }
 
 impl ::std::hash::Hash for WindowIcon {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: ::std::hash::Hasher,
+    {
         self.get_key().hash(state);
     }
 }
@@ -1543,7 +1620,7 @@ impl PartialOrd for TaskBarIcon {
     }
 }
 
-impl Eq for TaskBarIcon { }
+impl Eq for TaskBarIcon {}
 
 impl Ord for TaskBarIcon {
     fn cmp(&self, rhs: &Self) -> ::std::cmp::Ordering {
@@ -1552,7 +1629,10 @@ impl Ord for TaskBarIcon {
 }
 
 impl ::std::hash::Hash for TaskBarIcon {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: ::std::hash::Hasher,
+    {
         self.key.hash(state);
     }
 }
